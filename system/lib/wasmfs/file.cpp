@@ -208,7 +208,11 @@ int Directory::Handle::removeChild(const std::string& name) {
 
 std::string Directory::Handle::getName(std::shared_ptr<File> file) {
   if (getDir()->maintainsFileIdentity()) {
-    return getDir()->getName(file);
+    //return getDir()->getName(file);
+    auto string = getDir()->getName(file);
+    if (!string.empty()) {
+      return string;
+    }
   }
   auto& dcache = getDir()->dcache;
   for (auto it = dcache.begin(); it != dcache.end(); ++it) {
