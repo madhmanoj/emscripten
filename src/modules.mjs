@@ -107,6 +107,7 @@ function calculateLibraries() {
         'libwasmfs_fetch.js',
         'libwasmfs_node.js',
         'libwasmfs_opfs.js',
+        'libwasmfs_fsaccess.js'
       );
     } else {
       // Core filesystem libraries (always linked against, unless -sFILESYSTEM=0 is specified)

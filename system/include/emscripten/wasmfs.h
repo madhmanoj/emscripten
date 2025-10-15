@@ -48,6 +48,9 @@ typedef backend_t (*backend_constructor_t)(void*);
 
 backend_t wasmfs_create_memory_backend(void);
 
+// Creates a new FSAccess backend
+backend_t wasmfs_create_fsaccess_backend(void);
+
 // Fetch backend
 //
 // Creates a new fetchfs backend.  FetchFS will backstop filesystem
