@@ -5,9 +5,10 @@
 #include "wasmfs.h"
 #include <emscripten/threading.h>
 #include <emscripten/proxying.h>
+#include <emscripten/console.h>
 
 extern "C" {
-  void _fsaccess_show_directory_picker(em_proxying_ctx* ctx);
+  void _wasmfs_fsaccess_show_directory_picker(em_proxying_ctx* ctx, int* resultPtr);
 }
 
 namespace wasmfs {
@@ -22,13 +23,11 @@ public:
   template<typename Func>
   void operator()(Func&& func) {
     if (emscripten_is_main_runtime_thread()) {
-      emscripten::ProxyingQueue::ProxyingCtx ctx;
-      ctx.ctx = nullptr;
-      func(ctx);
-    } else {
-      queue.proxySyncWithCtx(mainThread, std::forward<Func>(func));
+      emscripten_console_error("Error: FSAccess backend operations must be called from a pthread, not main thread");
+      return;
     }
-  }
+    queue.proxySyncWithCtx(mainThread, std::forward<Func>(func));
+  }       
 };
 
 class FSAccessFile : public DataFile {
@@ -120,7 +119,12 @@ public:
   }
   
   std::shared_ptr<Directory> createDirectory(mode_t mode) override {
-    proxy([](auto ctx) { _fsaccess_show_directory_picker(ctx.ctx); });
+    int result = 0;
+    proxy([&](auto ctx) { _wasmfs_fsaccess_show_directory_picker(ctx.ctx, &result); });
+    if (result <= 0) {
+      // Calls FS error on JS side, for example if Picker Cancelled
+      return nullptr;
+    }
     return std::make_shared<FSAccessDirectory>(mode, this, 1, proxy);
   }
   
