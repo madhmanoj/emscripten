@@ -1,14 +1,14 @@
 // fsaccess_backend.cpp
-
 #include "backend.h"
 #include "file.h"
 #include "wasmfs.h"
 #include <emscripten/threading.h>
 #include <emscripten/proxying.h>
-#include <emscripten/console.h>
 
 extern "C" {
   void _wasmfs_fsaccess_show_directory_picker(em_proxying_ctx* ctx, int* resultPtr);
+  void _wasmfs_fsaccess_get_entries(em_proxying_ctx* ctx, int dirID, std::vector<wasmfs::Directory::Entry>* entriesPtr, int* errPtr);
+  void _wasmfs_fsaccess_get_child(em_proxying_ctx* ctx, int parent, const char* name, int* childTypePtr, int* childIDPtr);
 }
 
 namespace wasmfs {
@@ -74,6 +74,22 @@ class FSAccessDirectory : public Directory {
 
 protected:
   std::shared_ptr<File> getChild(const std::string& name) override {
+    int childType = 0;
+    int childID = 0;
+    proxy([&](auto ctx) {
+      _wasmfs_fsaccess_get_child(ctx.ctx, dirID, name.c_str(), &childType, &childID);
+    });
+    if (childID < 0) {
+      // Error or not found
+      return nullptr;
+    }
+    // Create appropriate file type based on childType
+    if (childType == File::DataFileKind) {
+      return std::make_shared<FSAccessFile>(0777, getBackend(), childID, proxy);
+    } else if (childType == File::DirectoryKind) {
+      return std::make_shared<FSAccessDirectory>(0777, getBackend(), childID, proxy);
+    }
+    
     return nullptr;
   }
   
@@ -98,11 +114,23 @@ protected:
   }
   
   ssize_t getNumEntries() override {
-    return 0;
+    auto entries = getEntries();
+    if (int err = entries.getError()) {
+      return err;
+    }
+    return entries->size();
   }
   
   Directory::MaybeEntries getEntries() override {
-    return {0};
+    std::vector<Directory::Entry> entries;
+    int err = 0;
+    proxy([&](auto ctx) {
+      _wasmfs_fsaccess_get_entries(ctx.ctx, dirID, &entries, &err);
+    });
+    if (err) {
+      return {err};
+    }
+    return {entries};
   }
 
 public:
@@ -119,10 +147,11 @@ public:
   }
   
   std::shared_ptr<Directory> createDirectory(mode_t mode) override {
+    // Success = 0
+    // Failure = 1
     int result = 0;
     proxy([&](auto ctx) { _wasmfs_fsaccess_show_directory_picker(ctx.ctx, &result); });
-    if (result <= 0) {
-      // Calls FS error on JS side, for example if Picker Cancelled
+    if (result) {
       return nullptr;
     }
     return std::make_shared<FSAccessDirectory>(mode, this, 1, proxy);
@@ -138,5 +167,11 @@ public:
 extern "C" {
   wasmfs::backend_t wasmfs_create_fsaccess_backend() {
     return wasmfs::wasmFS.addBackend(std::make_unique<wasmfs::FSAccessBackend>());
+  }
+
+  void EMSCRIPTEN_KEEPALIVE _wasmfs_fsaccess_record_entry(
+    std::vector<wasmfs::Directory::Entry>* entries, const char* name, int type
+  ) {
+    entries->push_back({name, wasmfs::File::FileKind(type), 0});
   }
 }
